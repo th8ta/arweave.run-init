@@ -1,4 +1,8 @@
 import { nftSource, nftState } from "./templates/nft";
+import { collectionSource, collectionState } from "./templates/collection";
+
+import { StateInterface as NftStateInterface } from "@verto/contracts/build/nft/faces";
+import { StateInterface as CollectionStateInterface } from "@verto/contracts/build/collection/faces";
 
 import { createContract, createContractFromTx } from "smartweave";
 import { readJSON } from "fs-extra";
@@ -68,9 +72,25 @@ const addresses: string[] = [];
         balances: {
           [masterWalletAddress]: 1
         }
-      })
+      } as NftStateInterface)
     }, masterWallet));
   }
+
+  // deploy a collection
+  console.log("Deploying example collection...");
+  const collectionID = await createContract(
+    client,
+    masterWallet,
+    collectionSource,
+    JSON.stringify({
+      ...collectionState,
+      owner: masterWalletAddress,
+      collaborators: [
+        ...addresses,
+        masterWalletAddress
+      ],
+    } as CollectionStateInterface)
+  );
 })();
 
 /**
