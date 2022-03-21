@@ -53,6 +53,19 @@ var UpdateDetails = (state, action) => {
   };
 };
 
+// src/collection/modules/invoke.ts
+var Invoke = async (state, action) => {
+  const input = action.input;
+  ContractAssert(!!input.invocation, "Missing function invocation");
+  ContractAssert(!!input.foreignContract, "Missing foreign contract ID");
+  state.foreignCalls.push({
+    txID: SmartWeave.transaction.id,
+    contract: input.foreignContract,
+    input: input.invocation
+  });
+  return state;
+};
+
 // src/collection/modules/items.ts
 var UpdateItems = (state, action) => {
   const collaborators = state.collaborators;
@@ -65,6 +78,21 @@ var UpdateItems = (state, action) => {
   return {...state, items: input.items};
 };
 
+// src/collection/modules/readOutbox.ts
+var ReadOutbox = async (state, action) => {
+  const input = action.input;
+  ContractAssert(!!input.contract, "Missing contract to invoke");
+  const foreignState = await SmartWeave.contracts.readContractState(input.contract);
+  ContractAssert(!!foreignState.foreignCalls, "Contract is missing support for foreign calls");
+  const calls = foreignState.foreignCalls.filter((element) => element.contract === SmartWeave.contract.id && !state.invocations.includes(element.txID));
+  let res = state;
+  for (const entry of calls) {
+    res = (await handle(res, {caller: input.contract, input: entry.input})).state;
+    res.invocations.push(entry.txID);
+  }
+  return res;
+};
+
 // src/collection/index.ts
 export async function handle(state, action) {
   switch (action.input.function) {
@@ -74,5 +102,11 @@ export async function handle(state, action) {
       return {state: UpdateCollaborators(state, action)};
     case "updateItems":
       return {state: UpdateItems(state, action)};
+    case "readOutbox":
+      return {state: await ReadOutbox(state, action)};
+    case "invoke":
+      return {state: await Invoke(state, action)};
+    default:
+      throw new ContractError(`Invalid function: "${action.input.function}"`);
   }
 }
