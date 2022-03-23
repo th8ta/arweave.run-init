@@ -1,5 +1,6 @@
 import { nftSource, nftState } from "./templates/nft";
 import { collectionSource, collectionState } from "./templates/collection";
+import { pscSource, pscState } from "./templates/psc";
 
 import { StateInterface as NftStateInterface } from "@verto/contracts/build/nft/faces";
 import { StateInterface as CollectionStateInterface } from "@verto/contracts/build/collection/faces";
@@ -68,6 +69,7 @@ const addresses: string[] = [];
       srcTx: nftSourceID,
       state: JSON.stringify({
         ...nftState,
+        name: `Example NFT #${i}`,
         owner: masterWalletAddress,
         balances: {
           [masterWalletAddress]: 1
@@ -91,7 +93,73 @@ const addresses: string[] = [];
       ],
     } as CollectionStateInterface)
   );
+
+  // deploy some PSCs
+  console.log("Deploying psc logos...");
+  const vertoLogoID = await deployLogo(join(__dirname, "../assets/psc/verto.svg"), masterWallet);
+  const ardriveLogoID = await deployLogo(join(__dirname, "../assets/psc/ardrive.png"), masterWallet);
+
+  console.log("Deploying pscs...");
+  const pscIDs: string[] = [];
+
+  let pscBalances: Record<string, number> = {
+    [masterWalletAddress]: 2000
+  };
+  let pscVault: Record<string, {
+    balance: number;
+    end: number;
+    start: number;
+  }[]> = {
+    [masterWalletAddress]: [{
+      "balance": 1000,
+      "end": 100,
+      "start": 0
+    }]
+  };
+
+  for (const addr of addresses) {
+    pscBalances[addr] = 2000;
+    pscVault[addr] = [
+      {
+        "balance": 1000,
+        "end": 100,
+        "start": 0
+      }
+    ];
+  }
+
+  for (let i = 0; i < 20; i++) {
+    const communityName = i % 2 === 0 ? "verto" : "ardrive";
+
+    pscIDs.push(
+      await createContract(client, masterWallet, pscSource, JSON.stringify({
+        ...pscState,
+        name: communityName.toUpperCase() + " #" + i,
+        ticker: communityName === "verto" ? "VRT" : "ARDRIVE",
+        balances: pscBalances,
+        vault: pscVault,
+        settings: [...pscState.settings, ["communityLogo", communityName === "verto" ? vertoLogoID : ardriveLogoID]]
+      }, null, 4))
+    );
+  }
 })();
+
+async function deployLogo(fileLoc: string, wallet: JWKInterface) {
+  const logoTx = await client.createTransaction({
+    data: await readFile(fileLoc)
+  }, wallet);
+
+  await client.transactions.sign(logoTx, wallet);
+
+  let uploader = await client.transactions.getUploader(logoTx);
+
+  while (!uploader.isComplete) {
+    await uploader.uploadChunk();
+    console.log(`Deploying contract with data: ${uploader.pctComplete}% complete, ${uploader.uploadedChunks}/${uploader.totalChunks}`);
+  }
+
+  return logoTx.id;
+}
 
 /**
  * @returns source tx id
