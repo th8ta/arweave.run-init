@@ -1,9 +1,11 @@
 import { nftSource, nftState } from "./templates/nft";
 import { collectionSource, collectionState } from "./templates/collection";
 import { pscSource, pscState } from "./templates/psc";
+import { communitySource, communityState } from "./templates/community";
 
 import { StateInterface as NftStateInterface } from "@verto/contracts/build/nft/faces";
 import { StateInterface as CollectionStateInterface } from "@verto/contracts/build/collection/faces";
+import { StateInterface as CommunityStateInterface } from "@verto/contracts/build/community/faces";
 
 import { createContract, createContractFromTx } from "smartweave";
 import { readJSON } from "fs-extra";
@@ -138,10 +140,48 @@ const addresses: string[] = [];
         ticker: communityName === "verto" ? "VRT" : "ARDRIVE",
         balances: pscBalances,
         vault: pscVault,
-        settings: [...pscState.settings, ["communityLogo", communityName === "verto" ? vertoLogoID : ardriveLogoID]]
+        settings: [
+          ...pscState.settings,
+          [
+            "communityLogo",
+            communityName === "verto" ? vertoLogoID : ardriveLogoID
+          ]
+        ]
       }, null, 4))
     );
   }
+
+  console.log("Deploying community contract...");
+  const masterWalletVrtProfile = {
+    username: "master",
+    name: "Master Wallet",
+    addresses: [masterWalletAddress]
+  };
+
+  const communityContractID = await createContract(client, masterWallet, communitySource, JSON.stringify({
+    ...communityState,
+    people: [masterWalletVrtProfile],
+    tokens: [
+      // nfts
+      ...exampleNFTIDs.map((id) => ({
+        id,
+        type: "art",
+        lister: masterWalletVrtProfile.username
+      })),
+      // collection
+      {
+        id: collectionID,
+        type: "collection",
+        lister: masterWalletVrtProfile.username
+      },
+      // PSCs
+      ...pscIDs.map((id) => ({
+        id,
+        type: "community",
+        lister: masterWalletVrtProfile.username
+      }))
+    ]
+  } as CommunityStateInterface));
 })();
 
 async function deployLogo(fileLoc: string, wallet: JWKInterface) {
