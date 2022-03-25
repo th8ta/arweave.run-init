@@ -7,7 +7,9 @@ export const collectionState: StateInterface = {
   description: "A collection of example NFTs",
   owner: "",
   collaborators: [],
-  items: []
+  items: [],
+  invocations: [],
+  foreignCalls: []
 };
 
 export const collectionSource = new TextDecoder().decode(fs.readFileSync(path.join(__dirname, "../../assets/collection/contract.js")));

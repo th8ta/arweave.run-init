@@ -24,7 +24,9 @@ export const pscState = {
     ["voteLength", 2000],
     ["lockMinLength", 5],
     ["lockMaxLength", 720]
-  ]
+  ],
+  "invocations": [],
+  "foreignCalls": []
 };
 
 export const pscSource = new TextDecoder().decode(fs.readFileSync(path.join(__dirname, "../../assets/psc/contract.js")));

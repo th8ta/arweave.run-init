@@ -2,18 +2,21 @@ import { nftSource, nftState } from "./templates/nft";
 import { collectionSource, collectionState } from "./templates/collection";
 import { pscSource, pscState } from "./templates/psc";
 import { communitySource, communityState } from "./templates/community";
+import { clobSource, clobState } from "./templates/clob";
 
 import { StateInterface as NftStateInterface } from "@verto/contracts/build/nft/faces";
 import { StateInterface as CollectionStateInterface } from "@verto/contracts/build/collection/faces";
 import { StateInterface as CommunityStateInterface } from "@verto/contracts/build/community/faces";
+import { StateInterface as ClobStateInterface } from "@verto/contracts/build/clob/faces";
 
-import { createContract, createContractFromTx } from "smartweave";
+import { createContract } from "smartweave";
 import { readJSON } from "fs-extra";
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { JWKInterface } from "arweave/node/lib/wallet"
+import { JWKInterface } from "arweave/node/lib/wallet";
+
 import Arweave from "arweave";
-import Transaction from "arweave/node/lib/transaction"
+import Transaction from "arweave/node/lib/transaction";
 
 // gateway config
 const client = new Arweave({
@@ -182,6 +185,17 @@ const addresses: string[] = [];
       }))
     ]
   } as CommunityStateInterface));
+
+  console.log("Deploying clob contract...");
+  const clobContractID = await createContract(client, masterWallet, clobSource, JSON.stringify({
+    ...clobState,
+    emergencyHaltWallet: masterWalletAddress,
+    communityContract: communityContractID,
+    pairs: [{
+      pair: [pscIDs[0], pscIDs[1]],
+      orders: []
+    }]
+  } as ClobStateInterface));
 })();
 
 async function deployLogo(fileLoc: string, wallet: JWKInterface) {

@@ -11,7 +11,9 @@ export const nftState: StateInterface = {
   balances: {},
   allowMinting: true,
   contentType: "image/png",
-  createdAt: new Date().getTime().toString()
+  createdAt: new Date().getTime().toString(),
+  invocations: [],
+  foreignCalls: []
 };
 
 export const nftSource = new TextDecoder().decode(fs.readFileSync(path.join(__dirname, "../../assets/nft/contract.js")));
