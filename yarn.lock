@@ -41,10 +41,10 @@
   dependencies:
     "@types/node" "*"
 
-"@verto/contracts@^0.0.2":
-  version "0.0.2"
-  resolved "https://registry.yarnpkg.com/@verto/contracts/-/contracts-0.0.2.tgz#105056543209b63c49cef0fd96acb141f181c443"
-  integrity sha512-6RV16+o2O0QYLUIH9HBXq3cxK5bdxzKqchyucHh+3F9Qx4RAfPGtTWVcyjaVEi5pWjFN3mRIlCNQXnVKHp66Ig==
+"@verto/contracts@^0.0.3":
+  version "0.0.3"
+  resolved "https://registry.yarnpkg.com/@verto/contracts/-/contracts-0.0.3.tgz#d66cd2216f08a026fffd5c737de2bb89de8ded71"
+  integrity sha512-6NtwAf7PsG38yI4hi44Ta4S1VPJVcrjAeP9SCAY+fSuXj/B83E+cPjGAF6FsdXL5OLTEVVJ63wtRLgnSwDGzyA==
 
 "@weavery/clarity@^0.1.5":
   version "0.1.5"

@@ -8,7 +8,7 @@
     "typescript": "^4.6.2"
   },
   "dependencies": {
-    "@verto/contracts": "^0.0.2",
+    "@verto/contracts": "^0.0.3",
     "arweave": "^1.10.23",
     "fs-extra": "^10.0.1",
     "smartweave": "^0.4.46"
