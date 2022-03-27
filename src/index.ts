@@ -11,7 +11,7 @@ import { StateInterface as ClobStateInterface } from "@verto/contracts/build/clo
 
 import { createContract } from "smartweave";
 import { readJSON } from "fs-extra";
-import { readFile } from "fs/promises";
+import { readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import { JWKInterface } from "arweave/node/lib/wallet";
 
@@ -196,6 +196,15 @@ const addresses: string[] = [];
       orders: []
     }]
   } as ClobStateInterface));
+
+  console.log("Writing result file...");
+  await writeFile(join(__dirname, "result.json"), new TextEncoder().encode(JSON.stringify({
+    clobContractID,
+    communityContractID,
+    collectionID,
+    pscIDs,
+    exampleNFTIDs
+  }, null, 2)));
 })();
 
 async function deployLogo(fileLoc: string, wallet: JWKInterface) {
@@ -297,6 +306,6 @@ function addTagsToTx(tags: {
   }
 }
 
-async function mintAr(addr: string, amount: number = 1000000000000) {
+async function mintAr(addr: string, amount: number = 10000000000000) {
   await client.api.get(`/mint/${addr}/${amount}`);
 }
