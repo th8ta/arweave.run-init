@@ -198,7 +198,7 @@ const addresses: string[] = [];
   } as ClobStateInterface));
 
   console.log("Writing result file...");
-  await writeFile(join(__dirname, "result.json"), new TextEncoder().encode(JSON.stringify({
+  await writeFile(join(__dirname, "../result.json"), new TextEncoder().encode(JSON.stringify({
     clobContractID,
     communityContractID,
     collectionID,
