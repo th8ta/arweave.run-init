@@ -22,7 +22,7 @@ import Transaction from "arweave/node/lib/transaction";
 const client = new Arweave({
   host: "www.arweave.run",
   port: 443,
-  protocol: "http"
+  protocol: "https"
 });
 
 // addresses that should own tokens deployed
