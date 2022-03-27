@@ -43,7 +43,7 @@ const addresses: string[] = [];
   // this will own all tokens
   // and can control master functions
   // of the CLOB contract
-  const masterWalletLocation = join(__dirname, "../wallet.json");
+  const masterWalletLocation = join(__dirname, "../master_wallet.json");
   let masterWallet: JWKInterface;
 
   try {
