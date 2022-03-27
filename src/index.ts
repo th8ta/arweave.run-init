@@ -59,6 +59,7 @@ const addresses: string[] = [];
   // deploy nft contract src
   console.log("Deploying NFT contract src...");
   const nftSourceID = await deploySource(nftSource, masterWallet);
+  await client.api.get("mine");
 
   // deploy example nfts
   console.log("Deploying example nfts...");
@@ -98,11 +99,13 @@ const addresses: string[] = [];
       ],
     } as CollectionStateInterface)
   );
+  await client.api.get("mine");
 
   // deploy some PSCs
   console.log("Deploying psc logos...");
   const vertoLogoID = await deployLogo(join(__dirname, "../assets/psc/verto.svg"), masterWallet);
   const ardriveLogoID = await deployLogo(join(__dirname, "../assets/psc/ardrive.png"), masterWallet);
+  await client.api.get("mine");
 
   console.log("Deploying pscs...");
   const pscIDs: string[] = [];
@@ -152,6 +155,7 @@ const addresses: string[] = [];
         ]
       }, null, 4))
     );
+    await client.api.get("mine");
   }
 
   console.log("Deploying community contract...");
@@ -185,6 +189,7 @@ const addresses: string[] = [];
       }))
     ]
   } as CommunityStateInterface));
+  await client.api.get("mine");
 
   console.log("Deploying clob contract...");
   const clobContractID = await createContract(client, masterWallet, clobSource, JSON.stringify({
@@ -196,6 +201,7 @@ const addresses: string[] = [];
       orders: []
     }]
   } as ClobStateInterface));
+  await client.api.get("mine");
 
   console.log("Writing result file...");
   await writeFile(join(__dirname, "../result.json"), new TextEncoder().encode(JSON.stringify({
