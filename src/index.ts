@@ -20,7 +20,7 @@ import Transaction from "arweave/node/lib/transaction";
 
 // gateway config
 const client = new Arweave({
-  host: "www.arweave.run/",
+  host: "www.arweave.run",
   port: 443,
   protocol: "http"
 });
