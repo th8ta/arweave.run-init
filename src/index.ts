@@ -14,6 +14,7 @@ import { readJSON } from "fs-extra";
 import { readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import { JWKInterface } from "arweave/node/lib/wallet";
+import { lookup } from "mime-types";
 
 import Arweave from "arweave";
 import Transaction from "arweave/node/lib/transaction";
@@ -217,6 +218,8 @@ async function deployLogo(fileLoc: string, wallet: JWKInterface) {
   const logoTx = await client.createTransaction({
     data: await readFile(fileLoc)
   }, wallet);
+
+  logoTx.addTag("Content-Type", lookup(fileLoc) || "image/png");
 
   await client.transactions.sign(logoTx, wallet);
 
