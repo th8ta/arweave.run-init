@@ -98,6 +98,7 @@ const addresses: string[] = [];
         ...addresses,
         masterWalletAddress
       ],
+      items: exampleNFTIDs
     } as CollectionStateInterface)
   );
   await client.api.get("mine");
