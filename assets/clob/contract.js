@@ -33,7 +33,7 @@ var TogglePairGatekeeper = (state, action) => {
 };
 
 // src/clob/utils.ts
-var ensureValidTransfer = async (tokenID, transferTx) => {
+var ensureValidTransfer = async (tokenID, transferTx, caller) => {
   await ensureValidInteraction(tokenID, transferTx);
   try {
     const tx = await SmartWeave.unsafeClient.transactions.get(transferTx);
@@ -41,9 +41,13 @@ var ensureValidTransfer = async (tokenID, transferTx) => {
       if (tag.get("name", {decode: true, string: true}) === "Input") {
         const input = JSON.parse(tag.get("value", {decode: true, string: true}));
         ContractAssert(input.function === "transfer", "The interaction is not a transfer");
-        ContractAssert(input.target === SmartWeave.transaction.tags.find(({name}) => name === "Contract").value, "The target of this transfer is not this contract");
+        ContractAssert(input.target === tagPatch(SmartWeave.transaction.tags).find(({name}) => name === "Contract").value, "The target of this transfer is not this contract");
+        ContractAssert(input.qty && input.qty > 0, "Invalid transfer quantity");
       }
     });
+    const transferOwner = tx.get("owner");
+    const transferOwnerAddress = await SmartWeave.unsafeClient.wallets.ownerToAddress(transferOwner);
+    ContractAssert(transferOwnerAddress === caller, "Transfer owner is not the order creator");
   } catch (err) {
     throw new ContractError(err);
   }
@@ -56,6 +60,18 @@ var ensureValidInteraction = async (contractID, interactionID) => {
   ContractAssert(contractTxValidities[interactionID], "The interaction was invalid");
 };
 var isAddress = (addr) => /[a-z0-9_-]{43}/i.test(addr);
+function tagPatch(tags) {
+  if (Array.isArray(tags))
+    return tags;
+  const constructedArray = [];
+  for (const field in tags) {
+    constructedArray.push({
+      name: field,
+      value: tags[field]
+    });
+  }
+  return constructedArray;
+}
 
 // src/clob/modules/setCommunityContract.ts
 var SetCommunityContract = (state, action) => {
@@ -71,16 +87,32 @@ var ForeignTransfer = (state, action) => {
   const caller = action.caller;
   const input = action.input;
   ContractAssert(caller === state.emergencyHaltWallet, "Caller cannot issue a foreign transfer");
-  ContractAssert(input.qty && !!input.target && !!input.tokenID, "Missing parameters");
-  state.foreignCalls.push({
-    txID: SmartWeave.transaction.id,
-    contract: input.tokenID,
-    input: {
-      function: "transfer",
-      target: input.target,
-      qty: input.qty
+  if (input.transfers) {
+    for (let i = 0; i < input.transfers.length; i++) {
+      const transfer = input.transfers[i];
+      ContractAssert(transfer.qty && !!transfer.target && !!transfer.tokenID, `Missing parameters for transfer #${i}`);
+      state.foreignCalls.push({
+        txID: SmartWeave.transaction.id,
+        contract: transfer.tokenID,
+        input: {
+          function: "transfer",
+          target: transfer.target,
+          qty: transfer.qty
+        }
+      });
     }
-  });
+  } else {
+    ContractAssert(input.qty && !!input.target && !!input.tokenID, "Missing parameters");
+    state.foreignCalls.push({
+      txID: SmartWeave.transaction.id,
+      contract: input.tokenID,
+      input: {
+        function: "transfer",
+        target: input.target,
+        qty: input.qty
+      }
+    });
+  }
   return state;
 };
 
@@ -93,9 +125,9 @@ var CreateOrder = async (state, action) => {
   const tokenTx = input.transaction;
   const price = input.price;
   ContractAssert(isAddress(usedPair[0]) && isAddress(usedPair[1]), "One of two supplied pairs is invalid");
-  const pairIndex = pairs.findIndex(({pair}) => pair.includes(usedPair[0]) && pair.includes(usedPair[1]));
-  ContractAssert(pairIndex !== void 0, "This pair does not exist yet");
-  let contractID = "", contractInput, transferTx;
+  let contractID = "";
+  let contractInput;
+  let transferTx;
   try {
     transferTx = await SmartWeave.unsafeClient.transactions.get(tokenTx);
   } catch (err) {
@@ -109,200 +141,196 @@ var CreateOrder = async (state, action) => {
       contractInput = JSON.parse(tag.get("value", {decode: true, string: true}));
     }
   });
-  ContractAssert(typeof contractID === "string", "Invalid contract ID: not a string");
+  ContractAssert(typeof contractID === "string", "Invalid contract ID in transfer: not a string");
   ContractAssert(contractID !== "", "No contract ID found in the transfer transaction");
-  const fromToken = usedPair[0];
-  ContractAssert(fromToken === contractID, "Invalid transfer transaction, using the wrong token. The transferred token has to be the first item in the pair");
+  ContractAssert(!state.usedTransfers.includes(tokenTx), "This transfer has already been used for an order");
   ContractAssert(isAddress(contractID), "Invalid contract ID format");
-  await ensureValidTransfer(contractID, tokenTx);
-  let sortedOrderbook = state.pairs[pairIndex].orders.sort((a, b) => a.price > b.price ? 1 : -1);
-  const {orderbook, foreignCalls} = matchOrder(contractID, contractInput.qty, caller, SmartWeave.transaction.id, tokenTx, sortedOrderbook, price);
-  state.pairs[pairIndex].orders = orderbook;
-  state.pairs[pairIndex].priceLogs = {
-    orderID: SmartWeave.transaction.id,
-    token: fromToken,
-    logs: []
-  };
-  for (let i = 0; i < foreignCalls.length; i++) {
-    state.foreignCalls.push(foreignCalls[i]);
-  }
-  return state;
-};
-function matchOrder(inputToken, inputQuantity, inputCreator, inputTransaction, inputTransfer, orderbook, inputPrice, foreignCalls = [], logs = []) {
-  const orderPushed = !!orderbook.find((order) => order.id === inputTransaction);
-  let fillAmount;
-  if (orderbook.filter((order) => inputToken !== order.token && order.id !== inputTransaction).length === 0) {
-    ContractAssert(!!inputPrice, "Input price should be defined for the first order to a pair");
-    if (orderPushed) {
-      return {
-        orderbook,
-        foreignCalls
-      };
+  await ensureValidTransfer(contractID, tokenTx, caller);
+  const refundTransfer = () => state.foreignCalls.push({
+    txID: SmartWeave.transaction.id,
+    contract: contractID,
+    input: {
+      function: "transfer",
+      target: caller,
+      qty: contractInput.qty
     }
+  });
+  const fromToken = usedPair[0];
+  if (fromToken !== contractID) {
+    refundTransfer();
     return {
-      orderbook: [
-        ...orderbook,
-        {
-          id: inputTransaction,
-          transfer: inputTransfer,
-          creator: inputCreator,
-          token: inputToken,
-          price: inputPrice,
-          quantity: inputQuantity,
-          originalQuantity: inputQuantity
-        }
-      ],
+      state,
+      result: {
+        status: "failure",
+        message: "Invalid transfer transaction, using the wrong token. The transferred token has to be the first item in the pair"
+      }
+    };
+  }
+  const pairIndex = pairs.findIndex(({pair}) => pair.includes(usedPair[0]) && pair.includes(usedPair[1]));
+  if (pairIndex === -1) {
+    refundTransfer();
+    return {
+      state,
+      result: {
+        status: "failure",
+        message: "This pair does not exist yet"
+      }
+    };
+  }
+  const sortedOrderbook = state.pairs[pairIndex].orders.sort((a, b) => a.price > b.price ? 1 : -1);
+  try {
+    const {orderbook, foreignCalls, logs} = matchOrder({
+      pair: {
+        from: contractID,
+        to: usedPair.find((val) => val !== contractID)
+      },
+      quantity: contractInput.qty,
+      creator: caller,
+      transaction: SmartWeave.transaction.id,
+      transfer: tokenTx,
+      price
+    }, sortedOrderbook);
+    state.pairs[pairIndex].orders = orderbook;
+    state.pairs[pairIndex].priceLogs = {
+      orderID: SmartWeave.transaction.id,
+      token: fromToken,
+      logs: logs ?? []
+    };
+    for (let i = 0; i < foreignCalls.length; i++) {
+      state.foreignCalls.push(foreignCalls[i]);
+    }
+    state.usedTransfers.push(tokenTx);
+    return {
+      state,
+      result: {
+        status: "success",
+        message: "Order created successfully"
+      }
+    };
+  } catch (e) {
+    refundTransfer();
+    return {
+      state,
+      result: {
+        status: "failure",
+        message: e.message
+      }
+    };
+  }
+};
+function matchOrder(input, orderbook) {
+  const orderType = input.price ? "limit" : "market";
+  const foreignCalls = [];
+  const logs = [];
+  const reverseOrders = orderbook.filter((order) => input.pair.from !== order.token && order.id !== input.transaction);
+  if (!reverseOrders.length) {
+    if (orderType !== "limit")
+      throw new Error('The first order for a pair can only be a "limit" order');
+    orderbook.push({
+      id: input.transaction,
+      transfer: input.transfer,
+      creator: input.creator,
+      token: input.pair.from,
+      price: input.price,
+      quantity: input.quantity,
+      originalQuantity: input.quantity
+    });
+    return {
+      orderbook,
       foreignCalls
     };
   }
+  let fillAmount;
+  let receiveAmount = 0;
+  let remainingQuantity = input.quantity;
   for (let i = 0; i < orderbook.length; i++) {
-    if (inputToken === orderbook[i].token)
+    const currentOrder = orderbook[i];
+    if (input.pair.from === currentOrder.token || currentOrder.id === input.transaction)
       continue;
-    if (orderbook[i].id === inputTransaction)
+    const reversePrice = 1 / currentOrder.price;
+    if (orderType === "limit" && input.price !== reversePrice)
       continue;
-    const convertedExistingPrice = 1 / orderbook[i].price;
-    if (inputPrice) {
-      console.log("1) LIMIT ORDER");
-      ContractAssert(typeof inputPrice === "number", "Invalid price: not a number");
-      fillAmount = inputQuantity * inputPrice;
-    } else {
-      console.log("2) MARKET ORDER");
-      fillAmount = inputQuantity * convertedExistingPrice;
-    }
-    if (inputPrice === convertedExistingPrice || !inputPrice) {
-      console.log("3) Found compatible order");
-      console.log(orderbook[i]);
-      if (fillAmount === orderbook[i].quantity) {
-        console.log("4) ~~ Matched orders completely filled ~~");
-        const sendAmount = orderbook[i].quantity;
-        foreignCalls.push({
-          txID: SmartWeave.transaction.id,
-          contract: inputToken,
-          input: {
-            function: "transfer",
-            target: orderbook[i].creator,
-            qty: inputQuantity
-          }
-        }, {
-          txID: SmartWeave.transaction.id,
-          contract: orderbook[i].token,
-          input: {
-            function: "transfer",
-            target: inputCreator,
-            qty: sendAmount
-          }
-        });
-        logs.push({
-          id: orderbook[i].id,
-          price: inputPrice || convertedExistingPrice,
-          qty: sendAmount
-        });
-        orderbook.splice(i - 1, 1);
-        return {
-          orderbook,
-          foreignCalls,
-          logs
-        };
-      } else if (fillAmount < orderbook[i].quantity) {
-        console.log("5) ~~ Input order filled; existing order not completely filled ~~");
-        foreignCalls.push({
-          txID: SmartWeave.transaction.id,
-          contract: inputToken,
-          input: {
-            function: "transfer",
-            target: orderbook[i].creator,
-            qty: inputQuantity
-          }
-        }, {
-          txID: SmartWeave.transaction.id,
-          contract: orderbook[i].token,
-          input: {
-            function: "transfer",
-            target: inputCreator,
-            qty: fillAmount
-          }
-        });
-        logs.push({
-          id: orderbook[i].id,
-          price: inputPrice || convertedExistingPrice,
-          qty: fillAmount
-        });
-        orderbook[i].quantity -= fillAmount;
-        return {
-          orderbook,
-          foreignCalls,
-          logs
-        };
-      } else if (fillAmount > orderbook[i].quantity) {
-        console.log("6) ~~ Input order not completely filled; existing order filled ~~");
-        const sendAmount = orderbook[i].quantity;
-        foreignCalls.push({
-          txID: SmartWeave.transaction.id,
-          contract: inputToken,
-          input: {
-            function: "transfer",
-            target: orderbook[i].creator,
-            qty: inputQuantity - sendAmount * convertedExistingPrice
-          }
-        }, {
-          txID: SmartWeave.transaction.id,
-          contract: orderbook[i].token,
-          input: {
-            function: "transfer",
-            target: inputCreator,
-            qty: sendAmount
-          }
-        });
-        logs.push({
-          id: orderbook[i].id,
-          price: inputPrice || convertedExistingPrice,
-          qty: sendAmount
-        });
-        console.log("INPUT QUANTITY", inputQuantity);
-        console.log("ORDERBOOK ORDER QUANTITY", orderbook[i].quantity);
-        console.log("CONVERTED EXISTING PRICE", convertedExistingPrice);
-        if (!orderPushed) {
-          console.log("NOT ORDER PUSHED");
-          orderbook.push({
-            id: inputTransaction,
-            transfer: inputTransfer,
-            creator: inputCreator,
-            token: inputToken,
-            price: convertedExistingPrice,
-            quantity: inputQuantity - orderbook[i].quantity * convertedExistingPrice,
-            originalQuantity: inputQuantity
-          });
-        } else {
-          const order = orderbook.find((order2) => order2.id === inputTransaction);
-          console.log(order.quantity - orderbook[i].quantity * convertedExistingPrice);
-          order.quantity -= orderbook[i].quantity * convertedExistingPrice;
+    fillAmount = remainingQuantity * (input.price ?? reversePrice);
+    if (fillAmount <= currentOrder.quantity) {
+      const receiveFromCurrent = remainingQuantity * reversePrice;
+      currentOrder.quantity -= fillAmount;
+      receiveAmount += receiveFromCurrent;
+      foreignCalls.push({
+        txID: SmartWeave.transaction.id,
+        contract: input.pair.from,
+        input: {
+          function: "transfer",
+          target: currentOrder.creator,
+          qty: remainingQuantity
         }
-        orderbook = orderbook.filter((order) => order.id !== orderbook[i].id);
-        console.log("7) Calling recursively");
-        return matchOrder(inputToken, inputQuantity, inputCreator, inputTransaction, inputTransfer, orderbook, convertedExistingPrice, foreignCalls, logs);
-      }
+      });
+      logs.push({
+        id: currentOrder.id,
+        price: input.price || reversePrice,
+        qty: receiveFromCurrent
+      });
+      remainingQuantity = 0;
+    } else {
+      const receiveFromCurrent = currentOrder.quantity;
+      receiveAmount += receiveFromCurrent;
+      const sendAmount = receiveFromCurrent * currentOrder.price;
+      remainingQuantity -= sendAmount;
+      foreignCalls.push({
+        txID: SmartWeave.transaction.id,
+        contract: input.pair.from,
+        input: {
+          function: "transfer",
+          target: currentOrder.creator,
+          qty: sendAmount
+        }
+      });
+      logs.push({
+        id: currentOrder.id,
+        price: input.price || reversePrice,
+        qty: receiveFromCurrent
+      });
+      currentOrder.quantity = 0;
+    }
+    if (currentOrder.quantity === 0) {
+      orderbook = orderbook.filter((val) => val.id !== currentOrder.id);
+    }
+    if (remainingQuantity === 0)
+      break;
+  }
+  if (remainingQuantity > 0) {
+    if (orderType === "limit") {
+      orderbook.push({
+        id: input.transaction,
+        transfer: input.transfer,
+        creator: input.creator,
+        token: input.pair.from,
+        price: input.price,
+        quantity: remainingQuantity,
+        originalQuantity: input.quantity
+      });
+    } else {
+      foreignCalls.push({
+        txID: SmartWeave.transaction.id,
+        contract: input.pair.from,
+        input: {
+          function: "transfer",
+          target: input.creator,
+          qty: remainingQuantity
+        }
+      });
     }
   }
-  if (orderPushed) {
-    return {
-      orderbook,
-      foreignCalls,
-      logs
-    };
-  }
+  foreignCalls.push({
+    txID: SmartWeave.transaction.id,
+    contract: input.pair.to,
+    input: {
+      function: "transfer",
+      target: input.creator,
+      qty: receiveAmount
+    }
+  });
   return {
-    orderbook: [
-      ...orderbook,
-      {
-        id: inputTransaction,
-        transfer: inputTransfer,
-        creator: inputCreator,
-        token: inputToken,
-        price: inputPrice,
-        quantity: inputQuantity,
-        originalQuantity: inputQuantity
-      }
-    ],
+    orderbook,
     foreignCalls,
     logs
   };
@@ -418,7 +446,7 @@ export async function handle(state, action) {
     case "addPair":
       return {state: await AddPair(state, action)};
     case "createOrder":
-      return {state: await CreateOrder(state, action)};
+      return await CreateOrder(state, action);
     case "cancelOrder":
       return {state: await CancelOrder(state, action)};
     case "readOutbox":
