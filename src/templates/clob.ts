@@ -10,7 +10,9 @@ export const clobState: StateInterface = {
   communityContract: "",
   pairs: [],
   invocations: [],
-  foreignCalls: []
+  foreignCalls: [],
+  // @ts-expect-error
+  usedTransfers: []
 };
 
 export const clobSource = new TextDecoder().decode(fs.readFileSync(path.join(__dirname, "../../assets/clob/contract.js")));
