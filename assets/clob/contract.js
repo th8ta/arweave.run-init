@@ -423,21 +423,7 @@ var AddPair = async (state, action) => {
   }
   state.pairs.push({
     pair: newPair,
-    priceLogs: null,
     orders: []
-  });
-  return state;
-};
-
-// src/clob/modules/invoke.ts
-var Invoke = async (state, action) => {
-  const input = action.input;
-  ContractAssert(!!input.invocation, "Missing function invocation");
-  ContractAssert(!!input.foreignContract, "Missing foreign contract ID");
-  state.foreignCalls.push({
-    txID: SmartWeave.transaction.id,
-    contract: input.foreignContract,
-    input: input.invocation
   });
   return state;
 };
@@ -461,8 +447,6 @@ export async function handle(state, action) {
       return {state: await CancelOrder(state, action)};
     case "readOutbox":
       return {state: await ReadOutbox(state, action)};
-    case "invoke":
-      return {state: await Invoke(state, action)};
     case "togglePairGatekeeper":
       return {state: TogglePairGatekeeper(state, action)};
     case "setCommunityContract":
