@@ -125,6 +125,7 @@ var CreateOrder = async (state, action) => {
   const tokenTx = input.transaction;
   const price = input.price;
   ContractAssert(isAddress(usedPair[0]) && isAddress(usedPair[1]), "One of two supplied pairs is invalid");
+  ContractAssert(price === void 0 || price === null || price > 0, "Price must be greater than 0");
   let contractID = "";
   let contractInput;
   let transferTx;
