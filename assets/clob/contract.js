@@ -178,9 +178,11 @@ var CreateOrder = async (state, action) => {
     };
   }
   const sortedOrderbook = state.pairs[pairIndex].orders.sort((a, b) => a.price > b.price ? 1 : -1);
+  const dominantToken = state.pairs[pairIndex].pair[0];
   try {
-    const {orderbook, foreignCalls, logs} = matchOrder({
+    const {orderbook, foreignCalls, matches} = matchOrder({
       pair: {
+        dominant: dominantToken,
         from: contractID,
         to: usedPair.find((val) => val !== contractID)
       },
@@ -191,11 +193,15 @@ var CreateOrder = async (state, action) => {
       price
     }, sortedOrderbook);
     state.pairs[pairIndex].orders = orderbook;
-    state.pairs[pairIndex].priceLogs = {
-      orderID: SmartWeave.transaction.id,
-      token: fromToken,
-      logs: logs ?? []
-    };
+    if (matches.length > 0) {
+      const vwap = matches.map(({qty: volume, price: price2}) => volume * price2).reduce((a, b) => a + b, 0) / matches.map(({qty: volume}) => volume).reduce((a, b) => a + b, 0);
+      state.pairs[pairIndex].priceData = {
+        dominantToken,
+        block: SmartWeave.block.height,
+        vwap,
+        matchLogs: matches
+      };
+    }
     for (let i = 0; i < foreignCalls.length; i++) {
       state.foreignCalls.push(foreignCalls[i]);
     }
@@ -221,7 +227,7 @@ var CreateOrder = async (state, action) => {
 function matchOrder(input, orderbook) {
   const orderType = input.price ? "limit" : "market";
   const foreignCalls = [];
-  const logs = [];
+  const matches = [];
   const reverseOrders = orderbook.filter((order) => input.pair.from !== order.token && order.id !== input.transaction);
   if (!reverseOrders.length) {
     if (orderType !== "limit")
@@ -237,7 +243,8 @@ function matchOrder(input, orderbook) {
     });
     return {
       orderbook,
-      foreignCalls
+      foreignCalls,
+      matches
     };
   }
   let fillAmount;
@@ -251,8 +258,9 @@ function matchOrder(input, orderbook) {
     if (orderType === "limit" && input.price !== reversePrice)
       continue;
     fillAmount = remainingQuantity * (input.price ?? reversePrice);
+    let receiveFromCurrent = 0;
     if (fillAmount <= currentOrder.quantity) {
-      const receiveFromCurrent = remainingQuantity * reversePrice;
+      receiveFromCurrent = remainingQuantity * reversePrice;
       currentOrder.quantity -= fillAmount;
       receiveAmount += receiveFromCurrent;
       foreignCalls.push({
@@ -264,14 +272,9 @@ function matchOrder(input, orderbook) {
           qty: remainingQuantity
         }
       });
-      logs.push({
-        id: currentOrder.id,
-        price: input.price || reversePrice,
-        qty: receiveFromCurrent
-      });
       remainingQuantity = 0;
     } else {
-      const receiveFromCurrent = currentOrder.quantity;
+      receiveFromCurrent = currentOrder.quantity;
       receiveAmount += receiveFromCurrent;
       const sendAmount = receiveFromCurrent * currentOrder.price;
       remainingQuantity -= sendAmount;
@@ -284,13 +287,19 @@ function matchOrder(input, orderbook) {
           qty: sendAmount
         }
       });
-      logs.push({
-        id: currentOrder.id,
-        price: input.price || reversePrice,
-        qty: receiveFromCurrent
-      });
       currentOrder.quantity = 0;
     }
+    let dominantPrice = 0;
+    if (input.pair.dominant === input.pair.from) {
+      dominantPrice = input.price ?? reversePrice;
+    } else {
+      dominantPrice = currentOrder.price;
+    }
+    matches.push({
+      id: currentOrder.id,
+      qty: receiveFromCurrent,
+      price: dominantPrice
+    });
     if (currentOrder.quantity === 0) {
       orderbook = orderbook.filter((val) => val.id !== currentOrder.id);
     }
@@ -332,7 +341,7 @@ function matchOrder(input, orderbook) {
   return {
     orderbook,
     foreignCalls,
-    logs
+    matches
   };
 }
 
