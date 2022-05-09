@@ -41,7 +41,7 @@ var ensureValidTransfer = async (tokenID, transferTx, caller) => {
       if (tag.get("name", {decode: true, string: true}) === "Input") {
         const input = JSON.parse(tag.get("value", {decode: true, string: true}));
         ContractAssert(input.function === "transfer", "The interaction is not a transfer");
-        ContractAssert(input.target === tagPatch(SmartWeave.transaction.tags).find(({name}) => name === "Contract").value, "The target of this transfer is not this contract");
+        ContractAssert(input.target === getContractID(), "The target of this transfer is not this contract");
         ContractAssert(input.qty && input.qty > 0, "Invalid transfer quantity");
       }
     });
@@ -72,12 +72,18 @@ function tagPatch(tags) {
   }
   return constructedArray;
 }
+function getContractID() {
+  const tags = tagPatch(SmartWeave.transaction.tags);
+  const id = tags.find(({name}) => name === "Contract").value;
+  return id;
+}
 
 // src/clob/modules/setCommunityContract.ts
 var SetCommunityContract = (state, action) => {
   const caller = action.caller;
   const {id} = action.input;
   ContractAssert(caller === state.emergencyHaltWallet, "Caller cannot set the community contract");
+  ContractAssert(id !== getContractID(), "Cannot add self as community contract");
   ContractAssert(isAddress(id), "Invalid ID supplied");
   return {...state, communityContract: id};
 };
@@ -202,6 +208,8 @@ var CreateOrder = async (state, action) => {
         vwap,
         matchLogs: matches
       };
+    } else {
+      state.pairs[pairIndex].priceData = void 0;
     }
     for (let i = 0; i < foreignCalls.length; i++) {
       state.foreignCalls.push(foreignCalls[i]);
@@ -264,15 +272,17 @@ function matchOrder(input, orderbook) {
       receiveFromCurrent = remainingQuantity * reversePrice;
       currentOrder.quantity -= fillAmount;
       receiveAmount += receiveFromCurrent;
-      foreignCalls.push({
-        txID: SmartWeave.transaction.id,
-        contract: input.pair.from,
-        input: {
-          function: "transfer",
-          target: currentOrder.creator,
-          qty: remainingQuantity
-        }
-      });
+      if (remainingQuantity > 0) {
+        foreignCalls.push({
+          txID: SmartWeave.transaction.id,
+          contract: input.pair.from,
+          input: {
+            function: "transfer",
+            target: currentOrder.creator,
+            qty: remainingQuantity
+          }
+        });
+      }
       remainingQuantity = 0;
     } else {
       receiveFromCurrent = currentOrder.quantity;
@@ -374,6 +384,7 @@ var CancelOrder = async (state, action) => {
 var ReadOutbox = async (state, action) => {
   const input = action.input;
   ContractAssert(!!input.contract, "Missing contract to invoke");
+  ContractAssert(input.contract !== getContractID(), "Cannot read own outbox");
   const foreignState = await SmartWeave.contracts.readContractState(input.contract);
   ContractAssert(!!foreignState.foreignCalls, "Contract is missing support for foreign calls");
   const calls = foreignState.foreignCalls.filter((element) => element.contract === SmartWeave.contract.id && !state.invocations.includes(element.txID));
@@ -394,6 +405,7 @@ var AddPair = async (state, action) => {
   const gatekeeperActive = state.pairGatekeeper;
   const newPair = input.pair;
   ContractAssert(newPair.length === 2, "Invalid pair length. Should be 2");
+  ContractAssert(newPair[0] !== getContractID() && newPair[1] !== getContractID(), "Cannot add self as a pair");
   ContractAssert(/[a-z0-9_-]{43}/i.test(newPair[0]) && /[a-z0-9_-]{43}/i.test(newPair[1]), "One of two supplied pairs is invalid");
   const communityState = await SmartWeave.contracts.readContractState(communityContract);
   ContractAssert(!!communityState.tokens.find(({id}) => id === newPair[0]), `${newPair[0]} is not listed on Verto`);
