@@ -33,8 +33,6 @@ const addresses: string[] = [];
 (async () => {
   console.log("==== Arweave.run setup script ====");
 
-  console.log(await smartweave.readContract(client, "j-Jo2ypuD6AssBOo-nMvoGKbXHsNvRrNYlsvGDgpyW0"))
-
   try {
     await client.api.get("");
   } catch {
