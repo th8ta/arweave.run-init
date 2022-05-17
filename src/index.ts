@@ -9,7 +9,7 @@ import { StateInterface as CollectionStateInterface } from "@verto/contracts/bui
 import { StateInterface as CommunityStateInterface } from "@verto/contracts/build/community/faces";
 import { StateInterface as ClobStateInterface } from "@verto/contracts/build/clob/faces";
 
-import { createContract } from "smartweave";
+import { createContract, smartweave } from "smartweave";
 import { readJSON } from "fs-extra";
 import { readFile, writeFile } from "fs/promises";
 import { join } from "path";
@@ -33,6 +33,8 @@ const addresses: string[] = [];
 (async () => {
   console.log("==== Arweave.run setup script ====");
 
+  console.log(await smartweave.readContract(client, "j-Jo2ypuD6AssBOo-nMvoGKbXHsNvRrNYlsvGDgpyW0"))
+
   try {
     await client.api.get("");
   } catch {
@@ -52,9 +54,9 @@ const addresses: string[] = [];
   } catch {
     throw new Error(`Could not get master wallet from ${masterWalletLocation}`);
   }
+  const masterWalletAddress = await client.wallets.getAddress(masterWallet);
 
   console.log("Minting AR tokens to master wallet...");
-  const masterWalletAddress = await client.wallets.getAddress(masterWallet);
   await mintAr(masterWalletAddress);
 
   // deploy nft contract src
@@ -66,9 +68,9 @@ const addresses: string[] = [];
   console.log("Deploying example nfts...");
   const exampleNFTIDs: string[] = [];
 
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 4; i++) {
     exampleNFTIDs.push(await deployContractWithData({
-      data: await readFile(join(__dirname, "../assets/nft/img.jpeg")),
+      data: await readFile(join(__dirname, `../assets/nft/nft_${i + 1}.png`)),
       tags: [{
         name: "Content-Type",
         value: "image/jpeg"
@@ -76,7 +78,7 @@ const addresses: string[] = [];
       srcTx: nftSourceID,
       state: JSON.stringify({
         ...nftState,
-        name: `Example NFT #${i}`,
+        name: `Example NFT #${i + 1}`,
         owner: masterWalletAddress,
         balances: {
           [masterWalletAddress]: 1
@@ -138,13 +140,13 @@ const addresses: string[] = [];
     ];
   }
 
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 2; i++) {
     const communityName = i % 2 === 0 ? "verto" : "ardrive";
 
     pscIDs.push(
       await createContract(client, masterWallet, pscSource, JSON.stringify({
         ...pscState,
-        name: communityName.toUpperCase() + " #" + i,
+        name: communityName.toUpperCase(),
         ticker: communityName === "verto" ? "VRT" : "ARDRIVE",
         balances: pscBalances,
         vault: pscVault,
@@ -159,6 +161,36 @@ const addresses: string[] = [];
     );
     await client.api.get("mine");
   }
+
+  console.log("Deploying USDC...");
+  const logoID = await deployLogo(join(__dirname, "../assets/psc/usdc.png"), masterWallet);
+  const usdcID = await smartweave.createContract(client, masterWallet, nftSource, JSON.stringify({
+    name: "USD Stablecoin",
+    title: "USD Stablecoin",
+    owner: masterWalletAddress,
+    ticker: "USDC",
+    description: "Example USD stablecoin",
+    balances: {
+      [masterWalletAddress]: 1000000000,
+      "ljvCPN31XCLPkBo9FUeB7vAK0VC6-eY52-CS-6Iho8U": 10000000,
+    },
+    allowMinting: true,
+    contentType: "image/png",
+    createdAt: new Date().getTime().toString(),
+    invocations: [],
+    foreignCalls: [],
+    settings: [
+      [
+        "communityLogo",
+        logoID
+      ],
+      [
+        "communityDescription",
+        "Example USD stablecoin to test with"
+      ]
+    ]
+  }, null, 2));
+  await client.api.get("mine");
 
   console.log("Deploying community contract...");
   const masterWalletVrtProfile = {
@@ -188,7 +220,13 @@ const addresses: string[] = [];
         id,
         type: "community",
         lister: masterWalletVrtProfile.username
-      }))
+      })),
+      // usdc
+      {
+        id: usdcID,
+        type: "community",
+        lister: masterWalletVrtProfile.username
+      }
     ]
   } as CommunityStateInterface));
   await client.api.get("mine");
@@ -199,7 +237,7 @@ const addresses: string[] = [];
     emergencyHaltWallet: masterWalletAddress,
     communityContract: communityContractID,
     pairs: [{
-      pair: [pscIDs[0], pscIDs[1]],
+      pair: [usdcID, pscIDs[0]],
       orders: []
     }]
   } as ClobStateInterface));
